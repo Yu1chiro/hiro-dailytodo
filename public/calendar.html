@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
+  <meta name="theme-color" content="#fdfcfb">
+  <title>Kalender & Analisis - Taman Harian</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com?v=3.4.16"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            display: ['"Zen Maru Gothic"', 'ui-rounded', 'sans-serif'],
+            sans: ['Nunito', 'ui-sans-serif', 'system-ui', 'sans-serif']
+          },
+          colors: {
+            forest: '#23443a', moss: '#3f7a5a', meadow: '#8fc48f',
+            mist: '#e8f4ec', dew: '#bfe3e8', petal: '#f4b9c4',
+            sun: '#f6d98b', bark: '#6b5443'
+          }
+        }
+      }
+    };
+  </script>
+  
+  <style>
+    html {
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+    }
+    
+    body {
+      font-family: Nunito, sans-serif;
+      color: #23443a;
+      min-height: 100vh;
+      background: #fdfcfb;
+      background-image: 
+        radial-gradient(circle at 88% 6%, rgba(250, 224, 148, 0.25), transparent 32%), 
+        radial-gradient(ellipse at 15% 108%, rgba(70, 140, 90, 0.1), transparent 52%), 
+        linear-gradient(165deg, #f4f8f6 0%, #fdfcfb 45%, #eef4f0 100%);
+      background-attachment: fixed;
+      /* Mencegah scroll melompat di mobile */
+      overflow-y: scroll; 
+    }
+    
+    .glass {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      box-shadow: 0 4px 24px -6px rgba(35, 68, 58, 0.06);
+    }
+    
+    .bento-card {
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .bento-card:active {
+      transform: scale(0.98);
+    }
+    
+    .inp {
+      width: 100%;
+      border-radius: 14px;
+      border: 1.5px solid rgba(63, 122, 90, 0.15);
+      background: rgba(255, 255, 255, 0.95);
+      padding: 0.65rem 0.85rem;
+      outline: none;
+      transition: all 0.2s ease;
+      font-size: 16px; /* Mencegah auto-zoom di iOS */
+    }
+    
+    .inp:focus {
+      border-color: #3f7a5a;
+      box-shadow: 0 0 0 4px rgba(143, 196, 143, 0.2);
+    }
+    
+    @keyframes drop {
+      from { transform: translateY(-10px) scale(0.95); opacity: 0; }
+      to { transform: none; opacity: 1; }
+    }
+    
+    .toast { animation: drop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+    .modal-enter { animation: drop 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+    
+    @keyframes fadeScale {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .view-transition {
+      animation: fadeScale 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+    }
+    
+    .task-scroll::-webkit-scrollbar { width: 3px; }
+    .task-scroll::-webkit-scrollbar-thumb { background: rgba(35, 68, 58, 0.15); border-radius: 10px; }
+  </style>
+</head>
+<body class="antialiased selection:bg-moss/20 selection:text-forest">
+
+  <div class="lg:pl-64">
+    <main id="app" class="max-w-5xl mx-auto px-4 sm:px-6 py-6 pb-28 lg:pb-10 view-transition"></main>
+  </div>
+  
+  <button id="fab" aria-label="Tambah tugas" class="fixed z-30 right-4 bottom-20 lg:bottom-8 lg:right-8 h-14 px-5 rounded-full bg-moss text-white font-bold shadow-lg shadow-moss/30 hover:bg-forest hover:-translate-y-1 transition-all flex items-center gap-2 active:scale-95">
+    <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+      <path d="M12 5v14M5 12h14"/>
+    </svg>
+    <span class="hidden sm:inline">Tugas</span>
+  </button>
+  
+  <div id="modal"></div>
+
+  <script>
+    /* =========================================
+       State & Konfigurasi Global
+       ========================================= */
+    let currYear = new Date().getFullYear();
+    let currMonth = new Date().getMonth();
+    let tasksData = [];
+    let statsData = null;
+    let categoriesData = [];
+    
+    const MONTH_NAMES = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    
+    const PRIORITY_CLASSES = { 
+      high: 'bg-rose-100 text-rose-700', 
+      medium: 'bg-amber-100 text-amber-700', 
+      low: 'bg-emerald-100 text-emerald-700' 
+    };
+    
+    const BTN_CLASS = 'rounded-xl px-5 py-2.5 font-bold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss active:scale-95';
+
+    /* =========================================
+       Utilitas DOM & String
+       ========================================= */
+    const SVG_PATHS = {
+      tasks: '<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>',
+      cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+      chart: '<path d="M18 20V10M12 20V4M6 20v-6"/>',
+      out: '<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>',
+      menu: '<path d="M3 6h18M3 12h18M3 18h18"/>',
+      leaf: '<path d="M11 20A7 7 0 019.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.5 2 8 0 5.5-4.8 10-10 10z"/><path d="M2 21c0-3 1.9-5.5 6-7"/>',
+      chevronL: '<path d="M15 18l-6-6 6-6"/>',
+      chevronR: '<path d="M9 18l6-6-6-6"/>',
+      alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+      target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+      fire: '<path d="M12 2c0 0-5 4.5-5 9a5 5 0 0010 0c0-4.5-5-9-5-9z"/>',
+      edit: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>'
+    };
+
+    function icon(name, classes = 'w-5 h-5') {
+      return '<svg class="' + classes + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + SVG_PATHS[name] + '</svg>';
+    }
+
+    function $(selector, root = document) { return root.querySelector(selector); }
+    
+    function esc(str) {
+      if (str == null) return '';
+      return String(str)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+    
+    function ymd(dateObj) {
+      const z = new Date(dateObj.getTime() - dateObj.getTimezoneOffset() * 60000);
+      return z.toISOString().slice(0, 10);
+    }
+    
+    const TODAY_STR = ymd(new Date());
+
+    /* =========================================
+       API & Notifikasi
+       ========================================= */
+    function toast(msg, type = 'success') {
+      const bgClass = type === 'error' ? 'bg-rose-500' : (type === 'info' ? 'bg-forest' : 'bg-moss');
+      const el = document.createElement('div');
+      el.className = 'toast pointer-events-auto max-w-[90vw] sm:max-w-sm w-full rounded-2xl ' + bgClass + ' text-white px-5 py-3 shadow-xl shadow-' + bgClass + '/20 font-display font-medium text-sm transition-opacity duration-300 flex items-center justify-center text-center';
+      el.setAttribute('role', 'status');
+      el.innerHTML = msg;
+      
+      const container = $('#toasts');
+      if (container) {
+        container.appendChild(el);
+        setTimeout(function() {
+          el.classList.add('opacity-0');
+          setTimeout(function() { if (el.parentNode) el.remove(); }, 300);
+        }, 3000);
+      }
+    }
+
+    async function api(url, options = {}) {
+      const fetchOptions = {
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        method: options.method || 'GET',
+        body: options.body ? JSON.stringify(options.body) : undefined
+      };
+      
+      try {
+        const response = await fetch(url, fetchOptions);
+        if (response.status === 401) {
+          window.location.href = '/';
+          throw new Error('Sesi berakhir');
+        }
+        const json = await response.json().catch(function() { return {}; });
+        if (!response.ok) throw new Error(json.error || 'Terjadi kesalahan');
+        return json;
+      } catch (error) {
+        throw error;
+      }
+    }
+
+    /* =========================================
+       Struktur Navigasi & Shell Utama
+       ========================================= */
+    function initShell() {
+      const currentPath = '/calendar';
+      
+      const buildDeskLink = (href, icn, label) => {
+        const active = href === currentPath ? 'bg-white/90 text-forest font-extrabold shadow-sm' : 'text-forest/70 hover:bg-white/40';
+        return '<a href="' + href + '" class="flex items-center gap-3 rounded-2xl px-4 py-3 transition-colors ' + active + '">' + icon(icn) + '<span>' + label + '</span></a>';
+      };
+
+      const buildMobLink = (href, icn, label) => {
+        const active = href === currentPath ? 'text-moss' : 'text-forest/50 hover:text-forest/70';
+        return '<a href="' + href + '" class="flex flex-col items-center gap-1 px-4 py-2 text-[10px] font-bold transition-colors ' + active + '">' + icon(icn, 'w-6 h-6') + label + '</a>';
+      };
+
+      const sidebarLinks = buildDeskLink('/', 'tasks', 'Tugas') + buildDeskLink('/calendar', 'cal', 'Kalender') + buildDeskLink('/statistic', 'chart', 'Statistik');
+      const mobileNavLinks = buildMobLink('/', 'tasks', 'Tugas') + buildMobLink('/calendar', 'cal', 'Kalender') + buildMobLink('/statistic', 'chart', 'Statistik');
+      const logoutBtn = '<button data-logout class="flex items-center gap-3 rounded-2xl px-4 py-3 text-forest/70 hover:bg-white/40 mt-auto w-full transition-colors">' + icon('out') + '<span>Keluar</span></button>';
+      const brandLogo = '<div class="flex items-center gap-2 font-display font-bold text-xl mb-8 text-moss px-2">' + icon('leaf', 'w-7 h-7') + '<span class="text-forest tracking-wide">Taman Harian</span></div>';
+      
+      const shellHtml = 
+        '<div id="toasts" class="fixed top-4 inset-x-0 z-[100] flex flex-col items-center gap-2.5 px-4 pointer-events-none"></div>' +
+        '<aside class="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col p-6 glass rounded-r-[32px] border-l-0">' +
+          brandLogo + '<div class="flex flex-col gap-1.5 flex-1">' + sidebarLinks + logoutBtn + '</div>' +
+        '</aside>' +
+        '<header class="lg:hidden sticky top-0 z-30 glass flex items-center justify-between px-4 py-3 border-t-0 border-x-0 shadow-sm" style="padding-top:max(0.75rem, env(safe-area-inset-top))">' +
+          '<div class="flex items-center gap-2">' +
+            '<button id="burger" aria-label="Buka menu" class="p-2 -ml-2 rounded-xl active:bg-black/5 text-forest transition-colors">' + icon('menu', 'w-6 h-6') + '</button>' +
+            '<span class="font-display font-bold text-lg text-forest tracking-wide mt-0.5">Kalender</span>' +
+          '</div>' +
+        '</header>' +
+        '<div id="drawer" class="fixed inset-0 z-40 hidden">' +
+          '<div id="scrim" class="absolute inset-0 bg-forest/20 backdrop-blur-sm transition-opacity"></div>' +
+          '<aside class="absolute left-0 inset-y-0 w-[260px] flex flex-col p-6 bg-white/95 backdrop-blur-md shadow-2xl modal-enter">' +
+            brandLogo + '<div class="flex flex-col gap-1.5 flex-1">' + sidebarLinks + logoutBtn + '</div>' +
+          '</aside>' +
+        '</div>' +
+        '<nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 glass flex justify-around px-2 pt-2 pb-2 border-b-0 border-x-0 rounded-t-[24px] shadow-[0_-4px_24px_-8px_rgba(35,68,58,0.1)]" style="padding-bottom:max(0.5rem, env(safe-area-inset-bottom))">' +
+          mobileNavLinks +
+        '</nav>';
+        
+      document.body.insertAdjacentHTML('afterbegin', shellHtml);
+      
+      const burgerBtn = $('#burger');
+      const drawerDiv = $('#drawer');
+      const scrimDiv = $('#scrim');
+      
+      if (burgerBtn && drawerDiv) burgerBtn.addEventListener('click', function() { drawerDiv.classList.remove('hidden'); });
+      if (scrimDiv && drawerDiv) scrimDiv.addEventListener('click', function() { drawerDiv.classList.add('hidden'); });
+      
+      const logoutButtons = document.querySelectorAll('[data-logout]');
+      for (let i = 0; i < logoutButtons.length; i++) {
+        logoutButtons[i].addEventListener('click', async function() {
+          try { await api('/api/logout', { method: 'POST' }); } catch (e) {}
+          window.location.href = '/';
+        });
+      }
+    }
+
+    /* =========================================
+       Pengolahan Data & Tampilan Utama
+       ========================================= */
+    async function loadData() {
+      try {
+        const startDate = ymd(new Date(currYear, currMonth, 1));
+        const endDate = ymd(new Date(currYear, currMonth + 1, 0));
+        
+        const tasksRes = await api('/api/tasks?from=' + startDate + '&to=' + endDate);
+        const statsRes = await api('/api/stats');
+        const categoriesRes = await api('/api/categories');
+        
+        tasksData = tasksRes;
+        statsData = statsRes;
+        categoriesData = categoriesRes;
+        
+        // Animasi transisi SPA sederhana saat data dimuat
+        const appContainer = $('#app');
+        if (appContainer) {
+          appContainer.classList.remove('view-transition');
+          void appContainer.offsetWidth; // trigger reflow
+          appContainer.classList.add('view-transition');
+        }
+        
+        renderCalendar();
+      } catch (error) {
+        toast(error.message, 'error');
+      }
+    }
+
+    function renderInsights() {
+      if (!statsData) return '';
+      
+      const streak = statsData.streak;
+      const totals = statsData.totals;
+      
+      let weakCatName = '-';
+      let weakCatPercentage = 0;
+      let weakCatMessage = 'Belum ada data';
+      
+      if (statsData.category && statsData.category.length > 0) {
+        let minRatio = 101;
+        let selectedCat = null;
+        for (let i = 0; i < statsData.category.length; i++) {
+          const cat = statsData.category[i];
+          if (cat.total >= 1) {
+            const ratio = Math.round((cat.done / cat.total) * 100);
+            if (ratio < minRatio) { minRatio = ratio; selectedCat = cat; }
+          }
+        }
+        if (selectedCat) {
+          weakCatName = selectedCat.k;
+          weakCatPercentage = minRatio;
+          weakCatMessage = selectedCat.done + '/' + selectedCat.total;
+        }
+      }
+
+      let accuracyRate = '-';
+      let accuracyMessage = 'Isi estimasi';
+      if (totals.est > 0) {
+        const ratio = (totals.act / totals.est) * 100;
+        accuracyRate = Math.round(ratio) + '%';
+        if (ratio > 110) accuracyMessage = 'Lebih lama';
+        else if (ratio < 90) accuracyMessage = 'Lebih cepat';
+        else accuracyMessage = 'Sangat presisi';
+      }
+      
+      const totalProgress = totals.total > 0 ? Math.round((totals.done / totals.total) * 100) : 0;
+
+      const html = 
+        '<div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-5 sm:mb-6">' +
+          '<div class="glass bento-card rounded-[20px] sm:rounded-[24px] p-4 sm:p-5 relative overflow-hidden flex flex-col justify-between group cursor-default">' +
+            '<div class="absolute -top-2 -right-2 p-4 opacity-10 group-hover:scale-110 transition-transform">' + icon('fire', 'w-16 h-16') + '</div>' +
+            '<h3 class="text-[10px] sm:text-xs font-bold text-forest/60 tracking-wider uppercase">Streak Harian</h3>' +
+            '<div class="mt-1.5 sm:mt-2 flex items-baseline gap-1">' +
+              '<span class="font-display font-bold text-3xl sm:text-4xl text-moss">' + streak.current + '</span>' +
+              '<span class="text-xs font-bold text-forest/60">Hari</span>' +
+            '</div>' +
+            '<p class="text-[10px] sm:text-[11px] text-forest/70 mt-1 font-semibold truncate">' + (streak.todayDone ? 'Dipertahankan' : 'Tinggal 1 tugas') + '</p>' +
+          '</div>' +
+          
+          '<div class="glass bento-card rounded-[20px] sm:rounded-[24px] p-4 sm:p-5 relative overflow-hidden flex flex-col justify-between">' +
+            '<div class="absolute -top-2 -right-2 p-4 opacity-5">' + icon('alert', 'w-16 h-16') + '</div>' +
+            '<h3 class="text-[10px] sm:text-xs font-bold text-forest/60 tracking-wider uppercase">Kelemahan Kategori</h3>' +
+            '<div class="mt-1.5 sm:mt-2">' +
+              '<span class="font-display font-bold text-xl sm:text-2xl text-rose-700 truncate block leading-tight">' + esc(weakCatName) + '</span>' +
+            '</div>' +
+            '<p class="text-[10px] sm:text-[11px] text-forest/70 mt-1.5 font-semibold border-t border-forest/5 pt-1.5 flex justify-between">' +
+              '<span class="text-rose-600 font-bold">' + weakCatPercentage + '%</span> <span>' + weakCatMessage + '</span>' +
+            '</p>' +
+          '</div>' +
+          
+          '<div class="glass bento-card rounded-[20px] sm:rounded-[24px] p-4 sm:p-5 relative overflow-hidden flex flex-col justify-between">' +
+            '<div class="absolute -top-2 -right-2 p-4 opacity-5">' + icon('target', 'w-16 h-16') + '</div>' +
+            '<h3 class="text-[10px] sm:text-xs font-bold text-forest/60 tracking-wider uppercase">Akurasi Estimasi</h3>' +
+            '<div class="mt-1.5 sm:mt-2">' +
+              '<span class="font-display font-bold text-2xl sm:text-3xl text-amber-600">' + accuracyRate + '</span>' +
+            '</div>' +
+            '<p class="text-[10px] sm:text-[11px] text-forest/70 mt-1.5 font-semibold border-t border-forest/5 pt-1.5 truncate">' + accuracyMessage + '</p>' +
+          '</div>' +
+          
+          '<div class="glass bento-card rounded-[20px] sm:rounded-[24px] p-4 sm:p-5 relative overflow-hidden flex flex-col justify-between">' +
+            '<h3 class="text-[10px] sm:text-xs font-bold text-forest/60 tracking-wider uppercase">Presisi Total</h3>' +
+            '<div class="mt-1.5 sm:mt-2">' +
+              '<span class="font-display font-bold text-3xl sm:text-4xl text-forest">' + totalProgress + '%</span>' +
+            '</div>' +
+            '<div class="w-full h-1.5 bg-forest/5 rounded-full mt-2 overflow-hidden">' +
+               '<div class="h-full bg-moss rounded-full transition-all duration-500" style="width: ' + totalProgress + '%"></div>' +
+            '</div>' +
+            '<p class="text-[10px] sm:text-[11px] text-forest/70 mt-1.5 font-semibold flex justify-between">' +
+              '<span>' + totals.done + ' Selesai</span><span class="text-rose-500">' + totals.overdue + ' Lewat</span>' +
+            '</p>' +
+          '</div>' +
+        '</div>';
+      return html;
+    }
+
+    function renderCalendar() {
+      const firstDay = new Date(currYear, currMonth, 1).getDay();
+      const offset = firstDay === 0 ? 6 : firstDay - 1;
+      const daysInMonth = new Date(currYear, currMonth + 1, 0).getDate();
+      
+      const taskMap = {};
+      for (let i = 0; i < tasksData.length; i++) {
+        const t = tasksData[i];
+        if (!taskMap[t.due_date]) taskMap[t.due_date] = [];
+        taskMap[t.due_date].push(t);
+      }
+
+      let gridHtml = 
+        '<div class="grid grid-cols-7 gap-1 sm:gap-2 text-xs font-bold text-forest/50 mb-1.5">' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Sen</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Sel</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Rab</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Kam</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Jum</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px]">Sab</div>' +
+          '<div class="text-center py-1 uppercase tracking-widest text-[9px] sm:text-[10px] text-rose-400">Min</div>' +
+        '</div>' +
+        '<div class="grid grid-cols-7 gap-1 sm:gap-2">';
+
+      for (let i = 0; i < offset; i++) {
+        gridHtml += '<div class="aspect-square min-h-[65px] sm:min-h-[85px] rounded-[14px] sm:rounded-[20px] bg-white/30 border border-white/50"></div>';
+      }
+      
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateObj = new Date(currYear, currMonth, day);
+        const dateStr = ymd(dateObj);
+        const dayTasks = taskMap[dateStr] || [];
+        
+        const isToday = dateStr === TODAY_STR;
+        const isPast = dateStr < TODAY_STR;
+        
+        let doneCount = 0;
+        for (let j = 0; j < dayTasks.length; j++) {
+          if (dayTasks[j].status === 'done') doneCount++;
+        }
+        
+        const totalCount = dayTasks.length;
+        const progress = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+        
+        let tasksListHtml = '';
+        for (let j = 0; j < dayTasks.length; j++) {
+          const task = dayTasks[j];
+          const priorityClass = PRIORITY_CLASSES[task.priority] || PRIORITY_CLASSES.medium;
+          const isDone = task.status === 'done';
+          let cardClass = priorityClass;
+          if (isDone) cardClass = 'opacity-40 line-through bg-white/40 grayscale-[50%]';
+          
+          tasksListHtml += 
+            '<div data-id="' + task.id + '" data-act="view" class="cursor-pointer mb-1 px-1.5 py-0.5 sm:py-1 rounded-[6px] text-[9px] sm:text-[10px] font-bold leading-tight truncate border-l-[3px] border-white/50 ' + cardClass + ' hover:brightness-95 transition-all w-full">' +
+              esc(task.title) +
+            '</div>';
+        }
+
+        let cellClass = 'hover:bg-white/80 border border-white/70 shadow-sm shadow-black/5';
+        if (isToday) cellClass = 'ring-2 ring-moss ring-offset-1 ring-offset-[#fdfcfb] bg-white/95';
+        
+        let dateTextClass = 'text-forest font-display font-bold';
+        if (isToday) dateTextClass = 'bg-moss text-white shadow-sm font-display font-bold';
+        else if (isPast) dateTextClass = 'text-forest/40 font-display font-bold';
+        
+        let progressIndicator = '';
+        if (totalCount > 0) {
+          progressIndicator = 
+            '<div class="w-3.5 h-3.5 sm:w-4 sm:h-4 rounded-full border border-forest/10 grid place-items-center" style="background:conic-gradient(#3f7a5a ' + progress + '%, transparent 0)">' +
+              '<div class="w-2 h-2 sm:w-2.5 sm:h-2.5 bg-white rounded-full"></div>' +
+            '</div>';
+        }
+
+        gridHtml += 
+          '<div class="aspect-[4/5] sm:aspect-square min-h-[75px] sm:min-h-[90px] glass rounded-[14px] sm:rounded-[20px] p-1.5 sm:p-2 flex flex-col relative group transition-colors ' + cellClass + ' cursor-pointer" onclick="openForm(null, \'' + dateStr + '\')">' +
+            '<div class="flex justify-between items-start mb-1 sm:mb-1.5">' +
+              '<span class="w-6 h-6 sm:w-7 sm:h-7 flex items-center justify-center rounded-full text-xs sm:text-sm ' + dateTextClass + '">' + day + '</span>' +
+              progressIndicator +
+            '</div>' +
+            '<div class="flex-1 task-scroll overflow-y-auto w-full pointer-events-auto" onclick="event.stopPropagation()">' +
+              tasksListHtml +
+            '</div>' +
+          '</div>';
+      }
+      
+      gridHtml += '</div>';
+
+      const fullHtml = 
+        renderInsights() +
+        '<section class="glass rounded-[24px] sm:rounded-[32px] p-3 sm:p-6 shadow-sm border border-white/70">' +
+          '<div class="flex items-center justify-between mb-4 sm:mb-6 px-1 sm:px-2 sticky top-14 sm:static z-10 bg-[#fdfcfb]/80 sm:bg-transparent backdrop-blur-md sm:backdrop-blur-none py-2 sm:py-0 rounded-2xl sm:rounded-none">' +
+            '<h2 class="font-display font-bold text-xl sm:text-3xl text-forest flex items-center gap-1.5 sm:gap-2">' +
+              MONTH_NAMES[currMonth] + ' <span class="text-moss/60">' + currYear + '</span>' +
+            '</h2>' +
+            '<div class="flex gap-1 sm:gap-2 bg-white/60 p-1 rounded-xl sm:rounded-2xl border border-white/80 shadow-sm">' +
+              '<button onclick="changeMonth(-1)" class="p-1.5 sm:p-2 rounded-[10px] sm:rounded-xl hover:bg-white transition-colors text-forest/70 hover:text-forest active:scale-95">' + icon('chevronL', 'w-4 h-4 sm:w-5 sm:h-5') + '</button>' +
+              '<button onclick="changeMonth(1)" class="p-1.5 sm:p-2 rounded-[10px] sm:rounded-xl hover:bg-white transition-colors text-forest/70 hover:text-forest active:scale-95">' + icon('chevronR', 'w-4 h-4 sm:w-5 sm:h-5') + '</button>' +
+            '</div>' +
+          '</div>' +
+          gridHtml +
+        '</section>';
+        
+      const appContainer = $('#app');
+      if (appContainer) {
+        appContainer.innerHTML = fullHtml;
+      }
+    }
+
+    function changeMonth(direction) {
+      currMonth += direction;
+      if (currMonth > 11) { currMonth = 0; currYear++; } 
+      else if (currMonth < 0) { currMonth = 11; currYear--; }
+      loadData();
+    }
+
+    /* =========================================
+       Sistem Modal & Formulir (CRUD)
+       ========================================= */
+    function closeModal() {
+      const modalContainer = $('#modal');
+      if (modalContainer) modalContainer.innerHTML = '';
+    }
+    
+    function showModal(contentHtml) {
+      const wrapperHtml = 
+        '<div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center">' +
+          '<div class="absolute inset-0 bg-forest/30 backdrop-blur-[4px]" data-close></div>' +
+          '<div role="dialog" aria-modal="true" class="relative w-full sm:max-w-md max-h-[90vh] overflow-y-auto rounded-t-[32px] sm:rounded-[32px] p-5 sm:p-6 shadow-2xl modal-enter border border-white/70 pb-10 sm:pb-6" style="background:rgba(252,253,252,0.98)">' +
+            '<div class="w-12 h-1.5 bg-forest/10 rounded-full mx-auto mb-4 sm:hidden"></div>' + // Handle for mobile pull-down
+            contentHtml +
+          '</div>' +
+        '</div>';
+      const modalContainer = $('#modal');
+      if (modalContainer) modalContainer.innerHTML = wrapperHtml;
+    }
+
+    function buildLabel(labelText, inputHtml, extraClass) {
+      const cls = extraClass ? 'block ' + extraClass : 'block';
+      return '<label class="' + cls + '">' +
+               '<span class="text-[10px] font-bold text-forest/60 uppercase tracking-wider ml-1 mb-1 block">' + labelText + '</span>' +
+               inputHtml +
+             '</label>';
+    }
+
+    function openForm(taskObj, defaultDate) {
+      const isEditMode = taskObj != null;
+      const data = isEditMode ? taskObj : { 
+        title: '', description: '', category: 'Umum', priority: 'medium', 
+        due_date: defaultDate || TODAY_STR, estimate_min: '', actual_min: '' 
+      };
+      
+      let categoriesOptions = '';
+      for (let i = 0; i < categoriesData.length; i++) categoriesOptions += '<option value="' + esc(categoriesData[i]) + '">';
+      
+      const pKeys = ['high', 'medium', 'low'];
+      const pLabels = ['Tinggi', 'Sedang', 'Rendah'];
+      let priorityOptions = '';
+      for (let i = 0; i < pKeys.length; i++) {
+        priorityOptions += '<option value="' + pKeys[i] + '"' + (data.priority === pKeys[i] ? ' selected' : '') + '>' + pLabels[i] + '</option>';
+      }
+
+      const inputTitle = '<input name="title" maxlength="200" class="inp font-bold" value="' + esc(data.title) + '" placeholder="Fokus utama..." autofocus>';
+      const inputDesc = '<textarea name="description" rows="2" maxlength="1000" class="inp text-sm resize-none" placeholder="Rincian presisi...">' + esc(data.description) + '</textarea>';
+      const inputCat = '<input name="category" maxlength="40" list="categoryList" class="inp text-sm" value="' + esc(data.category) + '"><datalist id="categoryList">' + categoriesOptions + '</datalist>';
+      const inputPri = '<select name="priority" class="inp text-sm font-semibold">' + priorityOptions + '</select>';
+      const inputDate = '<input type="date" name="due_date" class="inp text-sm" value="' + data.due_date + '">';
+      const inputEst = '<input type="number" name="estimate_min" min="0" max="1440" class="inp text-sm" placeholder="Mnt" value="' + (data.estimate_min ?? '') + '">';
+      const inputAct = '<input type="number" name="actual_min" min="0" max="1440" class="inp text-sm" placeholder="Mnt" value="' + (data.actual_min ?? '') + '">';
+      
+      const labelTitle = buildLabel('Judul Tugas', inputTitle, 'col-span-2');
+      const labelDesc = buildLabel('Keterangan', inputDesc, 'col-span-2');
+      const labelCat = buildLabel('Kategori', inputCat, '');
+      const labelPri = buildLabel('Prioritas', inputPri, '');
+      const labelDate = buildLabel('Tenggat Waktu', inputDate, 'col-span-2');
+      const labelEst = buildLabel('Estimasi', inputEst, '');
+      const labelAct = buildLabel('Aktual', inputAct, '');
+
+      let delBtnHtml = '';
+      if (isEditMode) {
+        delBtnHtml = '<button type="button" data-act="delete-request" class="' + BTN_CLASS + ' bg-rose-50 text-rose-600 hover:bg-rose-100 border border-rose-100 mr-auto text-sm px-4">Hapus</button>';
+      }
+      
+      const modalHtml = 
+        '<h3 class="font-display font-bold text-xl sm:text-2xl mb-4 sm:mb-5 text-forest">' + (isEditMode ? 'Presisi: Edit Tugas' : 'Tugas Baru') + '</h3>' +
+        '<form id="taskForm" novalidate class="grid grid-cols-2 gap-3 sm:gap-4">' +
+          labelTitle + labelDesc + labelCat + labelPri + labelDate + labelEst + labelAct +
+          '<div class="col-span-2 flex justify-end gap-2 sm:gap-3 mt-4 pt-4 border-t border-forest/5">' +
+            delBtnHtml +
+            '<button type="button" data-close class="' + BTN_CLASS + ' bg-white border border-forest/10 text-forest/70 hover:bg-forest/5 text-sm px-4">Batal</button>' +
+            '<button type="submit" class="' + BTN_CLASS + ' bg-moss text-white hover:bg-forest shadow-md border border-moss/50 text-sm px-5">' + (isEditMode ? 'Simpan Akurat' : 'Tetapkan') + '</button>' +
+          '</div>' +
+        '</form>';
+
+      showModal(modalHtml);
+
+      const formEl = $('#taskForm');
+      if (formEl) {
+        formEl.addEventListener('submit', async function(event) {
+          event.preventDefault();
+          const fd = new FormData(event.target);
+          const formData = {};
+          fd.forEach(function(value, key) { formData[key] = value; });
+          
+          if (!formData.title || !formData.title.trim()) return toast('Judul tugas tidak boleh kosong', 'error');
+          if (!formData.due_date) return toast('Tanggal wajib diisi', 'error');
+          
+          try {
+            const endpoint = isEditMode ? '/api/tasks/' + data.id : '/api/tasks';
+            const method = isEditMode ? 'PUT' : 'POST';
+            await api(endpoint, { method: method, body: formData });
+            closeModal();
+            toast(isEditMode ? 'Data presisi diperbarui' : 'Tugas terukur ditambahkan');
+            loadData();
+          } catch (error) { toast(error.message, 'error'); }
+        });
+      }
+
+      if (isEditMode) {
+        const delBtn = $('[data-act="delete-request"]');
+        if (delBtn) delBtn.addEventListener('click', function() { confirmDeletion(data); });
+      }
+    }
+
+    function confirmDeletion(taskData) {
+      const modalHtml = 
+        '<div class="text-center">' +
+          '<div class="inline-flex w-14 h-14 rounded-full bg-rose-50 text-rose-500 items-center justify-center mb-4">' + icon('alert', 'w-7 h-7') + '</div>' +
+          '<h3 class="font-display font-bold text-xl text-forest">Hapus Permanen?</h3>' +
+          '<p class="mt-2 text-sm text-forest/70 break-words px-2">Tugas "<b class="text-forest">' + esc(taskData.title) + '</b>" akan dihapus. Ini memengaruhi statistik akurasi Anda.</p>' +
+          '<div class="mt-6 flex flex-col gap-2.5">' +
+            '<button id="confirmDeleteBtn" class="' + BTN_CLASS + ' w-full bg-rose-500 text-white hover:bg-rose-600 shadow-sm border border-rose-600/50">Ya, Hapus Data</button>' +
+            '<button data-close class="' + BTN_CLASS + ' w-full bg-transparent text-forest/70 hover:bg-forest/5">Batal</button>' +
+          '</div>' +
+        '</div>';
+      showModal(modalHtml);
+      const confirmBtn = $('#confirmDeleteBtn');
+      if (confirmBtn) {
+        confirmBtn.addEventListener('click', async function() {
+          try {
+            await api('/api/tasks/' + taskData.id, { method: 'DELETE' });
+            closeModal(); toast('Data dihapus', 'info'); loadData();
+          } catch (error) { toast(error.message, 'error'); }
+        });
+      }
+    }
+
+    function buildDetailRow(label, value) {
+      return '<div class="mb-3">' +
+               '<div class="text-[9px] sm:text-[10px] uppercase font-bold text-forest/50 tracking-widest">' + label + '</div>' +
+               '<div class="font-bold text-sm leading-snug text-forest mt-0.5">' + (value || '-') + '</div>' +
+             '</div>';
+    }
+
+    function openTaskDetailModal(taskData) {
+      const priorityClass = PRIORITY_CLASSES[taskData.priority] || PRIORITY_CLASSES.medium;
+      const isDone = taskData.status === 'done';
+      
+      let titleClass = 'font-display font-bold text-xl sm:text-2xl text-forest leading-tight pr-2';
+      if (isDone) titleClass += ' line-through opacity-60';
+      
+      let toggleBtnClass = 'shrink-0 w-12 h-12 rounded-full border-2 grid place-items-center transition-all active:scale-95 shadow-sm';
+      if (isDone) toggleBtnClass += ' bg-moss border-moss text-white shadow-moss/30';
+      else toggleBtnClass += ' border-moss/30 text-moss/30 hover:bg-moss/5 hover:border-moss/50 hover:text-moss/50 bg-white/50';
+      
+      const statusHtml = isDone ? '<span class="text-moss font-extrabold flex items-center gap-1">' + icon('leaf', 'w-3 h-3') + 'Selesai</span>' : 'Dalam Proses';
+      const catHtml = '<span class="inline-block px-2.5 py-0.5 rounded-md border border-forest/10 text-[11px] bg-white/60 shadow-sm font-bold">' + esc(taskData.category) + '</span>';
+      const priHtml = '<span class="inline-block px-2.5 py-0.5 rounded-md text-[11px] border border-white/50 shadow-sm font-bold ' + priorityClass + '">' + taskData.priority + '</span>';
+      
+      const timeHtml = 'Est: ' + (taskData.estimate_min || '0') + ' <span class="text-forest/30 mx-1">|</span> Akt: ' + (taskData.actual_min || '0');
+      const descHtml = '<div class="whitespace-pre-wrap bg-white/50 p-3 sm:p-4 rounded-2xl border border-white/80 text-sm font-medium text-forest/80 shadow-sm">' + (esc(taskData.description) || '<em class="opacity-50">Tidak ada rincian.</em>') + '</div>';
+      
+      const modalHtml = 
+        '<div class="flex items-start justify-between gap-3 mb-5 sm:mb-6 border-b border-forest/5 pb-4 sm:pb-5">' +
+          '<h3 class="' + titleClass + '">' + esc(taskData.title) + '</h3>' +
+          '<button data-act="toggle-status" class="' + toggleBtnClass + '">' + icon('leaf', 'w-5 h-5') + '</button>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-x-2 gap-y-1 sm:gap-y-2 mb-4 sm:mb-5">' +
+          buildDetailRow('Tenggat', taskData.due_date) +
+          buildDetailRow('Status', statusHtml) +
+          buildDetailRow('Kategori', catHtml) +
+          buildDetailRow('Tingkat', priHtml) +
+          buildDetailRow('Waktu (Mnt)', timeHtml) +
+        '</div>' +
+        buildDetailRow('Catatan', descHtml) +
+        '<div class="flex justify-end gap-3 mt-6 sm:mt-8 pt-4 border-t border-forest/5">' +
+          '<button data-act="edit-request" class="' + BTN_CLASS + ' w-full bg-white border border-forest/10 shadow-sm text-forest hover:bg-forest/5 flex items-center justify-center gap-2">' +
+            icon('edit', 'w-4 h-4') + ' <span>Edit Presisi</span>' +
+          '</button>' +
+        '</div>';
+
+      showModal(modalHtml);
+
+      const toggleBtn = $('[data-act="toggle-status"]');
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', async function() {
+          try {
+            const response = await api('/api/tasks/' + taskData.id + '/toggle', { method: 'PATCH' });
+            closeModal();
+            toast(response.status === 'done' ? 'Pencapaian tercatat' : 'Pencapaian dibatalkan', response.status === 'done' ? 'success' : 'info');
+            loadData();
+          } catch (error) { toast(error.message, 'error'); }
+        });
+      }
+
+      const editBtn = $('[data-act="edit-request"]');
+      if (editBtn) editBtn.addEventListener('click', function() { openForm(taskData, null); });
+    }
+
+    /* =========================================
+       Event Listeners & Inisialisasi
+       ========================================= */
+    document.addEventListener('click', function(event) {
+      if (event.target.closest('[data-close]')) return closeModal();
+      
+      const viewButton = event.target.closest('[data-act="view"]');
+      if (viewButton) {
+        event.stopPropagation();
+        const taskId = viewButton.getAttribute('data-id');
+        let selectedTask = null;
+        for (let i = 0; i < tasksData.length; i++) {
+          if (String(tasksData[i].id) === String(taskId)) { selectedTask = tasksData[i]; break; }
+        }
+        if (selectedTask) openTaskDetailModal(selectedTask);
+      }
+    });
+    
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        closeModal();
+        const drawerEl = $('#drawer');
+        if (drawerEl) drawerEl.classList.add('hidden');
+      }
+    });
+
+    initShell();
+    
+    const fabBtn = $('#fab');
+    if (fabBtn) fabBtn.addEventListener('click', function() { openForm(null, TODAY_STR); });
+    
+    loadData();
+  </script>
+</body>
+</html>

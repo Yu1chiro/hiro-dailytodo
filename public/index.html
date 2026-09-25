@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#c7e7ee">
+<title>Tugas - Taman Harian</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800&family=Zen+Maru+Gothic:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config={theme:{extend:{fontFamily:{display:['"Zen Maru Gothic"','ui-rounded','sans-serif'],sans:['Nunito','ui-sans-serif','system-ui','sans-serif']},colors:{forest:'#23443a',moss:'#3f7a5a',meadow:'#8fc48f',mist:'#e8f4ec',dew:'#bfe3e8',petal:'#f4b9c4',sun:'#f6d98b',bark:'#6b5443'}}}}
+</script>
+<style>
+html{-webkit-tap-highlight-color:transparent}
+body{font-family:Nunito,sans-serif;color:#23443a;min-height:100vh;background:radial-gradient(circle at 88% 6%,rgba(250,224,148,.6),transparent 32%),radial-gradient(ellipse at 15% 108%,rgba(70,140,90,.32),transparent 52%),linear-gradient(165deg,#c7e7ee 0%,#e5f3e3 45%,#b8dcac 100%);background-attachment:fixed}
+.glass{background:rgba(255,255,255,.62);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid rgba(255,255,255,.75);box-shadow:0 10px 30px -14px rgba(35,68,58,.3)}
+.inp{width:100%;border-radius:14px;border:1px solid rgba(63,122,90,.28);background:rgba(255,255,255,.85);padding:.6rem .85rem;outline:none}
+.inp:focus{border-color:#3f7a5a;box-shadow:0 0 0 3px rgba(143,196,143,.5)}
+@keyframes drop{from{transform:translateY(-14px);opacity:0}to{transform:none;opacity:1}}
+.toast{animation:drop .25s ease-out}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="lg:pl-64"><main id="app" class="max-w-4xl mx-auto px-4 sm:px-8 py-6 pb-32 lg:pb-12"></main></div>
+<button id="fab" aria-label="Tambah tugas" class="fixed z-30 right-4 bottom-24 lg:bottom-8 lg:right-8 h-14 px-5 rounded-full bg-moss text-white font-bold shadow-xl hover:bg-forest transition flex items-center gap-2"></button>
+<div id="modal"></div>
+
+<script>
+/* ===== shared helpers ===== */
+const P={
+tasks:'<path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/>',
+cal:'<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+chart:'<path d="M18 20V10M12 20V4M6 20v-6"/>',
+out:'<path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>',
+menu:'<path d="M3 6h18M3 12h18M3 18h18"/>',
+plus:'<path d="M12 5v14M5 12h14"/>',
+edit:'<path d="M12 20h9M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/>',
+trash:'<path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/>',
+check:'<path d="M20 6L9 17l-5-5"/>',
+leaf:'<path d="M11 20A7 7 0 019.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.5 2 8 0 5.5-4.8 10-10 10z"/><path d="M2 21c0-3 1.9-5.5 6-7"/>'};
+const icon=(n,c='w-5 h-5')=>`<svg class="${c}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n]}</svg>`;
+const $=(s,r=document)=>r.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const ymd=d=>{const z=new Date(d.getTime()-d.getTimezoneOffset()*6e4);return z.toISOString().slice(0,10)};
+function toast(msg,type='success'){
+  const c={success:'bg-moss',error:'bg-rose-500',info:'bg-forest'}[type];
+  const el=document.createElement('div');
+  el.className=`toast pointer-events-auto max-w-md w-full sm:w-auto rounded-2xl ${c} text-white px-5 py-3 shadow-xl font-bold text-sm transition-opacity duration-300`;
+  el.setAttribute('role','status');el.textContent=msg;$('#toasts').appendChild(el);
+  setTimeout(()=>{el.classList.add('opacity-0');setTimeout(()=>el.remove(),300)},3200);
+}
+async function api(url,opt={}){
+  const r=await fetch(url,{credentials:'same-origin',headers:{'Content-Type':'application/json'},...opt,body:opt.body?JSON.stringify(opt.body):undefined});
+  if(r.status===401){location.href='/';throw new Error('Sesi berakhir')}
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok)throw new Error(j.error||'Terjadi kesalahan');
+  return j;
+}
+function shell(){
+  const here=location.pathname.replace(/\/$/,'')||'/';
+  const NAV=[['/','tasks','Tugas'],['/calendar','cal','Kalender'],['/statistic','chart','Statistik']];
+  const link=(h,i,l,cls)=>`<a href="${h}" class="${cls} ${h===here?'bg-white/85 text-forest font-extrabold shadow-sm':'text-forest/70 hover:bg-white/50'}">${icon(i)}<span>${l}</span></a>`;
+  const side=NAV.map(n=>link(...n,'flex items-center gap-3 rounded-2xl px-4 py-3')).join('')+`<button data-logout class="flex items-center gap-3 rounded-2xl px-4 py-3 text-forest/70 hover:bg-white/50 mt-auto w-full">${icon('out')}<span>Keluar</span></button>`;
+  const brand=`<div class="flex items-center gap-2 font-display font-bold text-xl mb-6 text-moss">${icon('leaf','w-7 h-7')}<span class="text-forest">Taman Harian</span></div>`;
+  document.body.insertAdjacentHTML('afterbegin',`
+  <div id="toasts" class="fixed top-3 inset-x-0 z-[100] flex flex-col items-center gap-2 px-4 pointer-events-none" style="top:max(.75rem,env(safe-area-inset-top))"></div>
+  <aside class="hidden lg:flex fixed inset-y-0 left-0 w-64 flex-col p-5 glass rounded-r-[32px]">${brand}<div class="flex flex-col gap-1 flex-1">${side}</div></aside>
+  <header class="lg:hidden sticky top-0 z-30 glass flex items-center gap-3 px-4 pb-3" style="padding-top:max(.75rem,env(safe-area-inset-top))">
+    <button id="burger" aria-label="Buka menu" class="p-2 -ml-2 rounded-xl hover:bg-white/60">${icon('menu','w-6 h-6')}</button>
+    <span class="font-display font-bold text-lg">Taman Harian</span></header>
+  <div id="drawer" class="fixed inset-0 z-40 hidden"><div id="scrim" class="absolute inset-0 bg-forest/40"></div>
+    <aside class="absolute left-0 inset-y-0 w-72 flex flex-col p-5 bg-mist rounded-r-[32px] shadow-2xl">${brand}<div class="flex flex-col gap-1 flex-1">${side}</div></aside></div>
+  <nav class="lg:hidden fixed bottom-0 inset-x-0 z-30 glass flex justify-around pt-2" style="padding-bottom:max(.5rem,env(safe-area-inset-bottom))">
+    ${NAV.map(([h,i,l])=>`<a href="${h}" class="flex flex-col items-center gap-0.5 px-5 py-1 text-xs font-bold ${h===here?'text-moss':'text-forest/55'}">${icon(i,'w-6 h-6')}${l}</a>`).join('')}</nav>`);
+  const dr=$('#drawer');
+  $('#burger').onclick=()=>dr.classList.remove('hidden');
+  $('#scrim').onclick=()=>dr.classList.add('hidden');
+  document.querySelectorAll('[data-logout]').forEach(b=>b.onclick=async()=>{try{await api('/api/logout',{method:'POST'})}catch{}location.href='/'});
+}
+const sprout=n=>{const l=Math.min(Math.max(n,0),6);let s=`<svg viewBox="0 0 80 92" class="w-14 h-16" aria-hidden="true"><path d="M40 88V${72-l*9}" stroke="#3f7a5a" stroke-width="4" stroke-linecap="round"/>`;
+  for(let i=0;i<l;i++){const y=80-i*9,x=i%2?1:-1,a=x*26,b=x*28;s+=`<path d="M40 ${y}q${a} -4 ${b} -22q${-a} 2 ${-b} 22z" fill="${i%2?'#8fc48f':'#6fb17d'}"/>`}
+  return s+'<ellipse cx="40" cy="89" rx="22" ry="3" fill="#6b5443" opacity=".35"/></svg>'};
+
+/* ===== index app ===== */
+const T=ymd(new Date());
+const PR={high:['Tinggi','bg-rose-100 text-rose-700'],medium:['Sedang','bg-amber-100 text-amber-700'],low:['Rendah','bg-emerald-100 text-emerald-700']};
+const fmtDate=s=>new Date(s+'T00:00:00').toLocaleDateString('id-ID',{weekday:'short',day:'numeric',month:'short'});
+const S={view:'today',tasks:[],overdue:[],streak:{current:0,longest:0},cats:[],f:{q:'',status:'',priority:'',category:''}};
+const byId=id=>[...S.tasks,...S.overdue].find(t=>t.id==id);
+const BTN='rounded-full px-5 py-2.5 font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-moss';
+
+async function load(){
+  try{
+    if(S.view==='today'){
+      const [a,b,s]=await Promise.all([api(`/api/tasks?from=${T}&to=${T}`),api(`/api/tasks?status=todo&before=${T}`),api('/api/streak')]);
+      S.tasks=a;S.overdue=b;S.streak=s;
+    }else{
+      const p=new URLSearchParams(Object.entries(S.f).filter(([,v])=>v));
+      const [a,c]=await Promise.all([api('/api/tasks?'+p),api('/api/categories')]);
+      S.tasks=a;S.overdue=[];S.cats=c;
+    }
+    render();
+  }catch(e){toast(e.message,'error')}
+}
+const refresh=()=>{$('#app').innerHTML='';load()};
+
+function taskItem(t){
+  const d=t.status==='done',late=!d&&t.due_date<T,[pl,pc]=PR[t.priority];
+  return `<article data-id="${t.id}" class="glass rounded-[22px] p-3.5 flex gap-3 items-start ${late?'ring-2 ring-petal':''}">
+  <button data-act="toggle" aria-label="${d?'Tandai belum selesai':'Tandai selesai'}" class="mt-0.5 shrink-0 w-8 h-8 rounded-full border-2 grid place-items-center transition ${d?'bg-moss border-moss text-white':'border-moss/50 hover:bg-meadow/40'}">${d?icon('check','w-4 h-4'):''}</button>
+  <div class="min-w-0 flex-1">
+    <p class="font-bold leading-snug break-words ${d?'line-through opacity-50':''}">${esc(t.title)}</p>
+    ${t.description?`<p class="text-sm text-forest/70 line-clamp-2 mt-0.5">${esc(t.description)}</p>`:''}
+    <div class="flex flex-wrap gap-1.5 mt-2 text-xs font-bold">
+      <span class="px-2 py-0.5 rounded-full bg-dew/70">${esc(t.category)}</span>
+      <span class="px-2 py-0.5 rounded-full ${pc}">${pl}</span>
+      <span class="px-2 py-0.5 rounded-full ${late?'bg-rose-100 text-rose-700':'bg-white/70'}">${late?'Terlambat, ':''}${fmtDate(t.due_date)}</span>
+      ${t.estimate_min?`<span class="px-2 py-0.5 rounded-full bg-white/70">${t.estimate_min} mnt</span>`:''}
+    </div></div>
+  <div class="flex shrink-0 -mr-1">
+    <button data-act="edit" aria-label="Edit tugas" class="p-2 rounded-xl hover:bg-white/70">${icon('edit')}</button>
+    <button data-act="del" aria-label="Hapus tugas" class="p-2 rounded-xl hover:bg-rose-100 text-rose-600">${icon('trash')}</button></div>
+  </article>`;
+}
+const tabs=()=>`<div class="inline-flex rounded-full glass p-1 text-sm font-bold">
+  <a href="#today" class="px-4 py-1.5 rounded-full ${S.view==='today'?'bg-moss text-white':'text-forest/70'}">Hari ini</a>
+  <a href="#all" class="px-4 py-1.5 rounded-full ${S.view==='all'?'bg-moss text-white':'text-forest/70'}">Semua tugas</a></div>`;
+
+function render(){
+  if(S.view==='all')return renderAll();
+  const done=S.tasks.filter(t=>t.status==='done').length,tot=S.tasks.length,pct=tot?Math.round(done/tot*100):0;
+  const h=new Date().getHours(),g=h<11?'pagi':h<15?'siang':h<18?'sore':'malam';
+  $('#app').innerHTML=`
+  <div class="flex flex-wrap items-center justify-between gap-3">${tabs()}</div>
+  <section class="glass rounded-[32px] p-5 sm:p-7 mt-5 flex items-center gap-5">
+    <div class="flex-1 min-w-0">
+      <p class="text-sm font-bold text-forest/60">${new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'})}</p>
+      <h1 class="font-display font-bold text-2xl sm:text-3xl mt-1">Selamat ${g}</h1>
+      <p class="mt-3 font-bold">${tot?`${done} dari ${tot} tugas selesai (${pct}%)`:'Belum ada tugas hari ini'}</p>
+      <div class="mt-2 h-3 rounded-full bg-white/70 overflow-hidden"><div class="h-full rounded-full transition-all duration-500" style="width:${pct}%;background:linear-gradient(90deg,#8fc48f,#3f7a5a)"></div></div>
+      <p class="mt-3 text-sm text-forest/70">Streak <b class="text-forest">${S.streak.current} hari</b> · terpanjang <b class="text-forest">${S.streak.longest} hari</b></p>
+    </div>${sprout(S.streak.current)}
+  </section>
+  ${S.overdue.length?`<h2 class="font-display font-bold text-lg mt-7 mb-2 text-rose-700">Terlewat (${S.overdue.length})</h2><div class="space-y-2">${S.overdue.map(taskItem).join('')}</div>`:''}
+  <h2 class="font-display font-bold text-lg mt-7 mb-2">Tugas hari ini</h2>
+  <div class="space-y-2">${tot?S.tasks.map(taskItem).join(''):`<div class="glass rounded-[24px] p-6 text-center text-forest/70">Belum ada tugas untuk hari ini. Tekan tombol Tambah untuk menanam tugas pertama.</div>`}</div>`;
+}
+function renderAll(){
+  if(!$('#list')){
+    const o=(v,l,cur)=>`<option value="${esc(v)}" ${cur===v?'selected':''}>${esc(l)}</option>`;
+    $('#app').innerHTML=`<div class="flex flex-wrap items-center justify-between gap-3">${tabs()}</div>
+    <div class="glass rounded-[28px] p-4 mt-5 grid gap-3 grid-cols-2 sm:grid-cols-3">
+      <input id="fq" class="inp col-span-2 sm:col-span-3" placeholder="Cari judul atau catatan" value="${esc(S.f.q)}" aria-label="Cari tugas">
+      <select id="fs" class="inp" aria-label="Status">${o('','Semua status',S.f.status)}${o('todo','Belum selesai',S.f.status)}${o('done','Selesai',S.f.status)}</select>
+      <select id="fp" class="inp" aria-label="Prioritas">${o('','Semua prioritas',S.f.priority)}${o('high','Tinggi',S.f.priority)}${o('medium','Sedang',S.f.priority)}${o('low','Rendah',S.f.priority)}</select>
+      <select id="fc" class="inp col-span-2 sm:col-span-1" aria-label="Kategori">${o('','Semua kategori',S.f.category)}${S.cats.map(c=>o(c,c,S.f.category)).join('')}</select>
+    </div><div id="list" class="mt-2"></div>`;
+    let tm;$('#fq').oninput=e=>{clearTimeout(tm);tm=setTimeout(()=>{S.f.q=e.target.value.trim();load()},300)};
+    [['fs','status'],['fp','priority'],['fc','category']].forEach(([id,k])=>$('#'+id).onchange=e=>{S.f[k]=e.target.value;load()});
+  }
+  const g={};S.tasks.forEach(t=>(g[t.due_date]??=[]).push(t));
+  const keys=Object.keys(g).sort();
+  $('#list').innerHTML=keys.length?keys.map(d=>`<section><h3 class="font-display font-bold text-forest/80 mb-2 mt-5">${fmtDate(d)}${d===T?' (hari ini)':''}</h3><div class="space-y-2">${g[d].map(taskItem).join('')}</div></section>`).join(''):`<div class="glass rounded-[24px] p-6 text-center text-forest/70 mt-4">Tidak ada tugas yang cocok dengan filter ini.</div>`;
+}
+
+/* modal, form, konfirmasi */
+function modal(html){
+  $('#modal').innerHTML=`<div class="fixed inset-0 z-50 flex items-end sm:items-center justify-center"><div class="absolute inset-0 bg-forest/45" data-close></div>
+  <div role="dialog" aria-modal="true" class="relative w-full sm:max-w-lg max-h-[92vh] overflow-y-auto rounded-t-[28px] sm:rounded-[28px] p-5 sm:p-6 shadow-2xl" style="background:rgba(250,255,250,.96);padding-bottom:max(1.25rem,env(safe-area-inset-bottom))">${html}</div></div>`;
+}
+const closeModal=()=>{$('#modal').innerHTML=''};
+async function openForm(t){
+  const edit=!!t;
+  t=t||{title:'',description:'',category:'Umum',priority:'medium',due_date:T,estimate_min:'',actual_min:''};
+  const cats=await api('/api/categories').catch(()=>[]);
+  const L=(l,inner,cls='')=>`<label class="block ${cls}"><span class="text-sm font-bold">${l}</span>${inner}</label>`;
+  modal(`<h3 class="font-display font-bold text-xl">${edit?'Edit tugas':'Tambah tugas'}</h3>
+  <form id="tf" novalidate class="mt-4 grid grid-cols-2 gap-3">
+    ${L('Judul',`<input name="title" maxlength="200" class="inp mt-1" value="${esc(t.title)}" autofocus>`,'col-span-2')}
+    ${L('Catatan',`<textarea name="description" rows="2" maxlength="1000" class="inp mt-1">${esc(t.description)}</textarea>`,'col-span-2')}
+    ${L('Kategori',`<input name="category" maxlength="40" list="cl" class="inp mt-1" value="${esc(t.category)}"><datalist id="cl">${cats.map(c=>`<option value="${esc(c)}">`).join('')}</datalist>`)}
+    ${L('Prioritas',`<select name="priority" class="inp mt-1">${Object.entries(PR).map(([k,v])=>`<option value="${k}" ${t.priority===k?'selected':''}>${v[0]}</option>`).join('')}</select>`)}
+    ${L('Tanggal',`<input type="date" name="due_date" class="inp mt-1" value="${t.due_date}">`,'col-span-2')}
+    ${L('Estimasi (menit)',`<input type="number" name="estimate_min" min="0" max="1440" class="inp mt-1" value="${t.estimate_min??''}">`)}
+    ${L('Aktual (menit)',`<input type="number" name="actual_min" min="0" max="1440" class="inp mt-1" value="${t.actual_min??''}">`)}
+    <div class="col-span-2 flex justify-end gap-2 mt-2">
+      <button type="button" data-close class="${BTN} bg-white border border-moss/30">Batal</button>
+      <button class="${BTN} bg-moss text-white hover:bg-forest">${edit?'Simpan perubahan':'Tambah tugas'}</button></div>
+  </form>`);
+  $('#tf').onsubmit=async ev=>{
+    ev.preventDefault();
+    const f=Object.fromEntries(new FormData(ev.target));
+    if(!f.title.trim())return toast('Judul tugas wajib diisi','error');
+    if(!f.due_date)return toast('Tanggal wajib diisi','error');
+    try{
+      await api(edit?'/api/tasks/'+t.id:'/api/tasks',{method:edit?'PUT':'POST',body:f});
+      closeModal();toast(edit?'Tugas diperbarui':'Tugas ditambahkan');refresh();
+    }catch(x){toast(x.message,'error')}
+  };
+}
+function confirmDel(t){
+  modal(`<h3 class="font-display font-bold text-xl">Hapus tugas ini?</h3>
+  <p class="mt-2 text-forest/80 break-words">"${esc(t.title)}" akan dihapus permanen dan tidak bisa dikembalikan.</p>
+  <div class="mt-5 flex justify-end gap-2"><button data-close class="${BTN} bg-white border border-moss/30">Batal</button>
+  <button id="yes" class="${BTN} bg-rose-500 text-white hover:bg-rose-600">Hapus tugas</button></div>`);
+  $('#yes').onclick=async()=>{try{await api('/api/tasks/'+t.id,{method:'DELETE'});closeModal();toast('Tugas dihapus');refresh()}catch(x){toast(x.message,'error')}};
+}
+document.addEventListener('click',async e=>{
+  if(e.target.closest('[data-close]'))return closeModal();
+  const b=e.target.closest('[data-act]');if(!b)return;
+  const t=byId(b.closest('[data-id]')?.dataset.id);if(!t)return;
+  if(b.dataset.act==='edit')openForm(t);
+  else if(b.dataset.act==='del')confirmDel(t);
+  else try{
+    const r=await api(`/api/tasks/${t.id}/toggle`,{method:'PATCH'});
+    toast(r.status==='done'?'Tugas selesai, kerja bagus':'Tugas dikembalikan ke belum selesai',r.status==='done'?'success':'info');refresh();
+  }catch(x){toast(x.message,'error')}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();$('#drawer').classList.add('hidden')}});
+
+shell();
+$('#fab').innerHTML=icon('plus')+'<span>Tambah</span>';
+$('#fab').onclick=()=>openForm();
+const route=()=>{S.view=location.hash==='#all'?'all':'today';$('#app').innerHTML='';load()};
+addEventListener('hashchange',route);route();
+</script>
+</body>
+</html>
